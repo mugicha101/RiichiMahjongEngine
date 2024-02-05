@@ -102,11 +102,19 @@ extern const Tile GAME_TILES[TILE_COUNT]; // all game tiles (starting wall)
 
 // singular tile
 class Tile {
+public:
+    enum Action { Init, Drawn, Discard };
+private:
     TileType type; // is red | type (lower 6 bits)
+    int lastActionTurn = 0;
+    Action lastAction = Init;
 public:
     Tile(TileType type = NONE, bool red = false) : type((((TileType)red) << 6) | type) {}
     TileType operator*() const; // get tile type (without red flag)
     bool isRed() const; // get whether tile is red
+    void setLastAction(Action action, int turn); // set last action
+    Action getLastAction() const; // get last action
+    int getLastActionTurn() const; // get last action turn
 };
 
 // groups of up to 4 tiles, essentially treated as an interval
@@ -125,38 +133,59 @@ public:
     bool locked() const; //returns whether group is locked
 };
 
+// wait
+struct Wait {
+    TileType tileType = NONE;
+    uint8_t fu = 0;
+};
+
 // hand state
 struct Hand {
     Tile tiles[MAX_HAND_SIZE] = {}; // last tile is drawn tile, all initialized to none
     Group callMelds[MAX_GROUPS]; // melds from calls
     int8_t callMeldCount = 0; // number of call melds (number of elements in callMelds active)
     int8_t callTiles = 0; // number of tiles locked in calls, call tiles are at the start of the tiles array
+    Wait waits[TILE_COUNT]; // waits in hand
+    int waitCount = 0; // number of waits in hand
     TileType operator[](size_t index) const; // get ith tile's type
     void swapDrawn(size_t index); // swap drawn tile with ith tile
     Tile discardDrawn(); // return drawn tile and discard it from hand
     bool operator==(const Hand& other) const; // check if hand equals another hand
     void clear(); // clears hand
+    void updateWaits(const Player& player); // update wait tiles
 };
 
 // player state
 struct Player {
     Hand hand;
-    bool riichiActive = false; // in riichi state
+    Tile discards[TILE_COUNT];
+    int discardCount;
+    int riichiTurn = 0; // turn riichi was called, 0 if not called
     int score = 25000;
+    int lastTurn = 0;
+    int firstTurn = 0;
+    bool ronActive = false;
+    void initRound();
 };
 
 // board state
 // wind values: 00 = east, 01 = south, 10 = west, 11 = north, matches last 2 bits on wind tile types
 struct Board {
+    enum DrawAction { natural, pon, chi, kan };
     Player players[PLAYER_COUNT]; // array of players (indexed by wind)
     Tile wall[TILE_COUNT]; // wall
     int drawIndex; // next tile in wall to draw from
     int revealedDora; // number of revealed dora
+    int turn; // current turn starting at 1
+    int lastCallTurn; // turn of last call 0 if none
+    int8_t lastDiscardPlayer; // player who discarded last
+    DrawAction lastDrawAction; // last draw action
     int8_t roundWind; // round/prevalent wind
     int8_t seatWind; // seat wind
+    Board() { initGame(); }
     int valueOfHand(int8_t playerIndex) const; // gets basic point value of a player's hand
     void initGame(); // reset to start of game
     void nextRound(); // sets up game to start of next round
     TileType getDora(int index, bool ura) const; // get dora/uradora at specified index
-    Board() { initGame(); }
+    void drawTile(int8_t playerIndex, DrawAction drawActionType); // draw tile from wall
 };

@@ -30,7 +30,7 @@ int main()
     };
     Board board;
     memcpy(board.players[0].hand.tiles, tiles, sizeof(tiles));
-    board.players[0].riichiActive = true;
+    board.players[0].riichiTurn = 1;
     int points = board.valueOfHand(0);
     std::cout << "points=" << points << std::endl;
 

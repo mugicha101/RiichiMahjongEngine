@@ -30,6 +30,13 @@ public:
 
 inline TileType Tile::operator*() const { return type & (TileType)0b0111111; }
 inline bool Tile::isRed() const { return (bool)(type & 0b1000000); }
+inline void Tile::setLastAction(Action action, int turn) {
+    lastAction = action;
+    lastActionTurn = turn;
+}
+inline Tile::Action Tile::getLastAction() const { return lastAction; }
+inline int Tile::getLastActionTurn() const { return lastActionTurn; }
+
 
 inline TileType Hand::operator[](size_t index) const { return *tiles[index]; }
 inline void Hand::swapDrawn(size_t index) { std::swap(tiles[index], tiles[DRAWN_I]); }
@@ -41,6 +48,10 @@ inline Tile Hand::discardDrawn() {
 inline void Hand::clear() {
     for (int i = 0; i < MAX_HAND_SIZE; ++i)
         tiles[i] = NONE;
+}
+
+void Hand::updateWaits(const Player& player) {
+    // TODO
 }
 
 inline bool Group::valid(const Hand& hand) const {
@@ -78,10 +89,23 @@ const std::array<TileType, 1 << 7> initDoraMap() {
     return doraMapRef;
 }
 
+void Player::initRound() {
+    discardCount = 0;
+    hand.clear();
+    lastTurn = 0;
+    firstTurn = 0;
+    ronActive = false;
+}
+
 // gets next tile in run
 inline TileType nextInRun(TileType tileType) {
     return (tileType & 0b110000) && (tileType & 0b001111) != 9 ? tileType + 1 : NONE;
-};
+}
+
+// gets prev tile in run
+inline TileType prevInRun(TileType tileType) {
+    return (tileType & 0b110000) && (tileType & 0b001111) != 1 ? tileType - 1 : NONE;
+}
 
 // returns whether tile is terminal
 inline bool isSimple(TileType tileType) {
@@ -155,7 +179,7 @@ int tilePoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, i
     int doraTilesCount = 0;
     for (int i = 0; i < board.revealedDora; ++i) {
         doraTiles[doraTilesCount++] = board.getDora(i, false);
-        if (player.riichiActive) doraTiles[doraTilesCount++] = board.getDora(i, true);
+        if (player.riichiTurn) doraTiles[doraTilesCount++] = board.getDora(i, true);
     }
 
     // iterate through tiles
@@ -176,41 +200,62 @@ int tilePoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, i
 }
 
 // add points from non-group yaku (group han and fu passed in via yakuHan and yakuFu args)
+// called with special hands such as 13 orphans and 7 pairs
 int yakuPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, int yakuHan, const int fu) {
+    const Player& player = board.players[playerIndex];
+    const Hand& hand = player.hand;
+
     // ready / riichi
-    yakuHan += board.players[playerIndex].riichiActive;
+    // double ready / double riichi
+    yakuHan += player.riichiTurn != 0 ? player.riichiTurn == player.firstTurn && board.lastCallTurn < player.firstTurn ? 2 : 1 : 0;
 
-    // TODO: all simples / tan'yao
-
-    // TODO: common terminals / all terminals and honors / honro
+    // all simples / tan'yao
+    {
+        bool tanyao = true;
+        for (int i = 0; tanyao && i < sortedHand.size(); ++i) {
+            TileType tileType = sortedHand[i].type;
+            tanyao = (tileType & 0b110000) != 0 && (tileType & 0b001111) != 1 && (tileType & 0b001111) != 9;
+        }
+        yakuHan += tanyao;
+    }
 
     // TODO: half flush / common flush / hon'itsu
 
     // TODO: full flush / perfect flush / chin'itsu
 
+    // common terminals / all terminals and honors / honro
     // all honors / tsuiso
     // all terminals / chinroto
     // all green / ryuiso
-    bool allHonors = true;
-    bool allTerminals = true;
-    bool allGreen = true;
-    for (int i = 0; i < sortedHand.size(); ++i) {
-        TileType tileType = sortedHand[i].type;
-        allHonors &= (tileType >> 4) == 0;
-        allTerminals &= (tileType >> 4) != 0 && ((tileType & 0b1111) == 1 || (tileType & 0b1111) == 9);
-        allGreen &= ((tileType >> 4) == 1 && (
-                        (tileType & 0b1111) == 2 || (tileType & 0b1111) == 3 || (tileType & 0b1111) == 4 || (tileType & 0b1111) == 6 || (tileType & 0b1111) == 8)
-                    ) || tileType == DGNG;
+    {
+        bool commonTerminals = true;
+        bool allHonors = true;
+        bool allTerminals = true;
+        bool allGreen = true;
+        for (int i = 0; i < sortedHand.size(); ++i) {
+            TileType tileType = sortedHand[i].type;
+            bool isHonor = (tileType >> 4) == 0;
+            bool isTerminal = (tileType >> 4) != 0 && ((tileType & 0b1111) == 1 || (tileType & 0b1111) == 9);
+            commonTerminals &= isHonor | isTerminal;
+            allHonors &= isHonor;
+            allTerminals &= isTerminal;
+            allGreen &= ((tileType >> 4) == 1 && (
+                            (tileType & 0b1111) == 2 || (tileType & 0b1111) == 3 || (tileType & 0b1111) == 4 || (tileType & 0b1111) == 6 || (tileType & 0b1111) == 8)
+                        ) || tileType == DGNG;
+        }
+        yakuHan += commonTerminals ? 2 : 0;
+        yakuHan += allHonors ? YAKUMAN_HAN : 0;
+        yakuHan += allTerminals ? YAKUMAN_HAN : 0;
+        yakuHan += allGreen ? YAKUMAN_HAN : 0;
     }
-    yakuHan += allHonors ? YAKUMAN_HAN : 0;
-    yakuHan += allTerminals ? YAKUMAN_HAN : 0;
-    yakuHan += allGreen ? YAKUMAN_HAN : 0;
 
     // TODO: nagashi mangan
 
     // TODO: self pick / tsumo
+    yakuHan += !player.ronActive && hand.callMeldCount == 0;
 
-    // TODO: one shot / ippatsu
+    // one shot / ippatsu
+    yakuHan += player.lastTurn == player.riichiTurn && board.lastCallTurn < player.riichiTurn;
 
     // TODO: last tile draw / under the sea
 
@@ -219,8 +264,6 @@ int yakuPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, i
     // TODO: dead wall draw / after a quad / after a kan
 
     // TODO: robbing a quad / robbing a kan
-
-    // TODO: double ready / double riichi
 
     // return points
     if (yakuHan == 0) return 0;
@@ -233,7 +276,7 @@ int groupSetPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHan
     const Player& player = board.players[playerIndex];
     const Hand& hand = player.hand;
     int yakuHan = 0;
-    int fu = 20;
+    int fu = player.ronActive ? 30 : 20;
 
     // find pair
     int8_t pairIndex;
@@ -253,17 +296,14 @@ int groupSetPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHan
         }
         int fuPower = ((group.size() - 2) << 1) + !group.open() + !isSimple(tileType);
         fu += 1 << fuPower;
-
-        // TODO: count fu from winning tile position in group
     }
 
-    // TODO: count fu from waits (requires implementing waits)
+    // count fu from waits
+    for (int i = 0; i < hand.waitCount; ++i)
+        fu += hand.waits[i].fu;
 
-    // TODO: count fu from tsumo
-
-    // TODO: count fu from menzen ron (closed hand ron)
-
-    // TODO: count fu form open pinfu
+    // count fu from closed hand ron / menzen-kafu
+    fu += hand.callMeldCount == 0 && player.ronActive ? 10 : 0;
 
     // count suit runs and sets
     int runCounter[3][7];
@@ -281,8 +321,14 @@ int groupSetPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHan
         ++runCounter[(sortedHand[group[0]].type >> 4) - 1][((sortedHand[group[0]].type) & 0b1111) - 1];
     }
 
+    // count fu from tsumo
+    fu += !player.ronActive && hand.callMeldCount == 0 && fu > 20 ? 2 : 0;
+
+    // open pinfu / kui-pinfu
+    fu += fu == 20 && hand.callMeldCount != 0 ? 2 : 0;
+
     // no-points hand / pinfu
-    yakuHan += fu == 0;
+    yakuHan += fu == 20 && hand.callMeldCount == 0;
 
     // twin sequences / ipeiko
     // double twin sequences / ryanpeiko
@@ -550,14 +596,26 @@ void Board::initGame() {
 void Board::nextRound() {
     roundWind += seatWind == 0b11;
     seatWind = (seatWind + 1) & 0b11;
+    turn = 1;
+    lastCallTurn = 0;
+    lastDrawAction = natural;
+    lastDiscardPlayer = -1;
     memcpy(wall, GAME_TILES, sizeof(GAME_TILES));
     std::random_shuffle(std::begin(wall), std::end(wall));
     for (int i = 0; i < PLAYER_COUNT; ++i)
-        players[i].hand.clear();
+        players[i].initRound();
 }
 
 inline TileType Board::getDora(int index, bool ura) const {
     return *wall[DORA_OFFSET + (index << 1) | ura];
+}
+
+inline void Board::drawTile(int8_t playerIndex, DrawAction drawAction) {
+    Tile tile = wall[drawIndex--];
+    tile.setLastAction(Tile::Action::Drawn, turn);
+    Player& player = players[playerIndex];
+    player.hand.tiles[DRAWN_I] = tile;
+    lastDrawAction = drawAction;
 }
 
 const Tile GAME_TILES[TILE_COUNT] = {
