@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 project(CMakeSFMLProject LANGUAGES CXX)
+set (CMAKE_CXX_STANDARD 20)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
@@ -10,9 +11,15 @@ FetchContent_Declare(SFML
     GIT_TAG 2.6.x)
 FetchContent_MakeAvailable(SFML)
 
-add_executable(CMakeSFMLProject src/main.cpp)
+file(GLOB src CONFIGURE_DEPENDS "src/*.h" "src/*.cpp")
+add_executable(CMakeSFMLProject ${src})
 target_link_libraries(CMakeSFMLProject PRIVATE sfml-graphics)
 target_compile_features(CMakeSFMLProject PRIVATE cxx_std_17)
+add_compile_definitions(_USE_MATH_DEFINES)
+
+add_custom_command(TARGET CMakeSFMLProject PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/src/resources $<TARGET_FILE_DIR:CMakeSFMLProject>/resources)
 
 if(WIN32)
     add_custom_command(
