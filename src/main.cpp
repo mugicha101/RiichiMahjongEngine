@@ -1,10 +1,12 @@
 #include <SFML/Graphics.hpp>
 #include <iostream>
 #include "board.h"
+#include "view.h"
 
 int main()
 {
     initDoraMap();
+    View::init();
 
     Tile tiles[MAX_HAND_SIZE] = {
         Tile(SOU5),
@@ -31,21 +33,19 @@ int main()
     Board board;
     memcpy(board.players[0].hand.tiles, tiles, sizeof(tiles));
     board.players[0].riichiTurn = 1;
-    int points = board.valueOfHand(0);
-    std::cout << "points=" << points << std::endl;
+    // int points = board.valueOfHand(0);
+    // std::cout << "points=" << points << std::endl;
 
-    return 0;
-
-    auto window = sf::RenderWindow{ { 1920u, 1080u }, "CMake SFML Project" };
-    window.setFramerateLimit(144);
-    while (window.isOpen()) {
-        for (auto event = sf::Event{}; window.pollEvent(event);) {
+    View view(board);
+    const float init_scale = 0.8f;
+    view.open(sf::VideoMode::getDesktopMode().width * init_scale, sf::VideoMode::getDesktopMode().height * init_scale, 60);
+    while (view.window.isOpen()) {
+        for (auto event = sf::Event{}; view.window.pollEvent(event);) {
             if (event.type == sf::Event::Closed) {
-                window.close();
+                view.window.close();
             }
         }
 
-        window.clear();
-        window.display();
+        view.draw();
     }
 }

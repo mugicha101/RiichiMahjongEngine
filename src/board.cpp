@@ -112,52 +112,6 @@ inline bool isSimple(TileType tileType) {
     return !(tileType & 0b110000) == 0 && (tileType & 0b001111) != 1 && (tileType & 0b001111) != 9;
 }
 
-// sorted permutation of hand (empty tiles at the end)
-// used for translation between sorted hand and original hand (similar to virtual addressing)
-class SortedHand {
-public:
-    // element of sorted hand
-    struct SortedTile {
-        TileType type; // tile type
-        int originalIndex; // original unsorted index
-        int nextTypeIndice; // index of next element in sortedHand with different type (used for finding runs)
-        SortedTile() {}
-        SortedTile(TileType type, int originalIndex) : type(type), originalIndex(originalIndex) {}
-        inline int operator*() const { return originalIndex; }
-    };
-private:
-    int8_t _size;
-    SortedTile tiles[MAX_HAND_SIZE];
-public:
-    SortedHand(const Hand& hand) {
-        // copy non-call and non-empty tiles into hand
-        _size = MAX_HAND_SIZE - hand.callTiles;
-        int j = 0;
-        for (int i = hand.callTiles; i < MAX_HAND_SIZE; ++i) {
-            TileType type = *hand.tiles[i];
-            tiles[type == NONE ? --_size : j++] = SortedTile(type, i);
-        }
-
-        // sort tiles
-        std::sort(tiles, tiles + _size, [](SortedTile& a, SortedTile& b) {
-            return a.type < b.type;
-        });
-
-        // for non-call tiles define nextTypeIndice
-        tiles[_size-1].nextTypeIndice = _size;
-        for (int i = _size-2; i >= 0; --i)
-            tiles[i].nextTypeIndice = tiles[i].type == tiles[i+1].type ? tiles[i+1].nextTypeIndice : i+1;
-    }
-
-    inline SortedTile& operator[](int8_t index) {
-        return tiles[index];
-    }
-
-    inline int8_t size() const {
-        return _size;
-    }
-};
-
 // calculate basic points from hand and fu
 int basicPoints(int han, int fu) {
     if (han >= DOUBLE_YAKUMAN_HAN) return 16000; // double yakuman
