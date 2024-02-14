@@ -36,6 +36,7 @@ suited tiles
 #include <array>
 #include <algorithm>
 #include <vector>
+#include <string>
 
 typedef int8_t TileType;
 
@@ -98,7 +99,7 @@ const int DOUBLE_YAKUMAN_HAN = 999; // identifier for double yakuman (must be la
 const std::array<TileType, 1 << 7> initDoraMap(); // initializes doraMap
 const std::array<TileType, 1 << 7> DORA_MAP = initDoraMap(); // maps dora indicator to dora
 
-struct Tile; struct Group; struct Hand; struct Player; struct Board;
+struct Tile; struct Group; struct Hand; struct Player; struct Board; struct ScoreInfo;
 
 extern const Tile GAME_TILES[TILE_COUNT]; // all game tiles (starting wall)
 
@@ -144,7 +145,7 @@ struct Wait {
 // hand state
 struct Hand {
     Tile tiles[MAX_HAND_SIZE] = {}; // last tile is drawn tile, all initialized to none
-    Group callMelds[MAX_GROUPS]; // melds from calls
+    Group callMelds[MAX_GROUPS]; // melds from hand
     int8_t callMeldCount = 0; // number of call melds (number of elements in callMelds active)
     int8_t callTiles = 0; // number of tiles locked in calls, call tiles are at the start of the tiles array
     Wait waits[TILE_COUNT]; // waits in hand
@@ -185,7 +186,7 @@ struct Board {
     int8_t roundWind; // round/prevalent wind
     int8_t seatWind; // seat wind
     Board() { initGame(); }
-    int valueOfHand(int8_t playerIndex) const; // gets basic point value of a player's hand
+    ScoreInfo valueOfHand(int8_t playerIndex) const; // gets basic point value of a player's hand
     void initGame(); // reset to start of game
     void nextRound(); // sets up game to start of next round
     TileType getDora(int index, bool ura) const; // get dora/uradora at specified index
@@ -281,6 +282,16 @@ enum Yaku {
     BlessingOfMan,
 };
 
+struct YakuInfo {
+    std::string name;
+    // TODO: add more here later if needed
+    YakuInfo() {}
+    YakuInfo(std::string name) : name(name) {}
+};
+
+const std::array<YakuInfo, 40> initYakuInfoMap(); // initializes yakuInfoMap
+const std::array<YakuInfo, 40> YAKU_INFO_MAP = initYakuInfoMap(); // maps yaku to its info
+
 struct ScoreInfo {
     std::vector<std::pair<Yaku, int>> yakuHan; // pair of yaku and its han value (closed variants may have different han)
     int doraCount = 0;
@@ -288,6 +299,7 @@ struct ScoreInfo {
     int redDoraCount = 0;
     int han = 0;
     int fu = 0;
+    int basicPoints(); // caculates basic points based on han and fu
     inline void clear(); // clears score
     inline void addYaku(Yaku yaku, int han); // adds yaku
     inline void addDora(); // adds 1 dora

@@ -48,6 +48,9 @@ inline Tile Hand::discardDrawn() {
 inline void Hand::clear() {
     for (int i = 0; i < MAX_HAND_SIZE; ++i)
         tiles[i] = NONE;
+    callMeldCount = 0;
+    callTiles = 0;
+    waitCount = 0;
 }
 
 void Hand::updateWaits(const Player& player) {
@@ -79,14 +82,14 @@ inline bool Group::open() const { return _open; }
 inline bool Group::locked() const { return _locked; }
 
 const std::array<TileType, 1 << 7> initDoraMap() {
-    std::array<TileType, 1 << 7> doraMapRef;
-    doraMapRef[NONE] = NONE;
-    doraMapRef[DGNW] = DGNG; doraMapRef[DGNG] = DGNR; doraMapRef[DGNR] = DGNW;
-    doraMapRef[WNDE] = WNDS; doraMapRef[WNDS] = WNDW; doraMapRef[WNDW] = WNDN; doraMapRef[WNDN] = WNDE;
-    doraMapRef[PIN1] = PIN2; doraMapRef[PIN2] = PIN3; doraMapRef[PIN3] = PIN4; doraMapRef[PIN4] = PIN5; doraMapRef[PIN5] = PIN6; doraMapRef[PIN6] = PIN7; doraMapRef[PIN7] = PIN8; doraMapRef[PIN8] = PIN9; doraMapRef[PIN9] = PIN1;
-    doraMapRef[SOU1] = SOU2; doraMapRef[SOU2] = SOU3; doraMapRef[SOU3] = SOU4; doraMapRef[SOU4] = SOU5; doraMapRef[SOU5] = SOU6; doraMapRef[SOU6] = SOU7; doraMapRef[SOU7] = SOU8; doraMapRef[SOU8] = SOU9; doraMapRef[SOU9] = SOU1;
-    doraMapRef[MAN1] = MAN2; doraMapRef[MAN2] = MAN3; doraMapRef[MAN3] = MAN4; doraMapRef[MAN4] = MAN5; doraMapRef[MAN5] = MAN6; doraMapRef[MAN6] = MAN7; doraMapRef[MAN7] = MAN8; doraMapRef[MAN8] = MAN9; doraMapRef[MAN9] = MAN1;
-    return doraMapRef;
+    std::array<TileType, 1 << 7> doraMap;
+    doraMap[NONE] = NONE;
+    doraMap[DGNW] = DGNG; doraMap[DGNG] = DGNR; doraMap[DGNR] = DGNW;
+    doraMap[WNDE] = WNDS; doraMap[WNDS] = WNDW; doraMap[WNDW] = WNDN; doraMap[WNDN] = WNDE;
+    doraMap[PIN1] = PIN2; doraMap[PIN2] = PIN3; doraMap[PIN3] = PIN4; doraMap[PIN4] = PIN5; doraMap[PIN5] = PIN6; doraMap[PIN6] = PIN7; doraMap[PIN7] = PIN8; doraMap[PIN8] = PIN9; doraMap[PIN9] = PIN1;
+    doraMap[SOU1] = SOU2; doraMap[SOU2] = SOU3; doraMap[SOU3] = SOU4; doraMap[SOU4] = SOU5; doraMap[SOU5] = SOU6; doraMap[SOU6] = SOU7; doraMap[SOU7] = SOU8; doraMap[SOU8] = SOU9; doraMap[SOU9] = SOU1;
+    doraMap[MAN1] = MAN2; doraMap[MAN2] = MAN3; doraMap[MAN3] = MAN4; doraMap[MAN4] = MAN5; doraMap[MAN5] = MAN6; doraMap[MAN6] = MAN7; doraMap[MAN7] = MAN8; doraMap[MAN8] = MAN9; doraMap[MAN9] = MAN1;
+    return doraMap;
 }
 
 void Player::initRound() {
@@ -112,19 +115,20 @@ inline bool isSimple(TileType tileType) {
     return !(tileType & 0b110000) == 0 && (tileType & 0b001111) != 1 && (tileType & 0b001111) != 9;
 }
 
-// calculate basic points from hand and fu
-int basicPoints(const ScoreInfo& scoreInfo) {
-    if (scoreInfo.han >= DOUBLE_YAKUMAN_HAN) return 16000; // double yakuman
-    if (scoreInfo.han >= 13) return 8000; // yakuman
-    if (scoreInfo.han >= 11) return 6000; // sanbaiman
-    if (scoreInfo.han >= 8) return 4000; // baiman
-    if (scoreInfo.han >= 6) return 3000; // haneman
-    if (scoreInfo.han == 5 || (scoreInfo.han == 4 && scoreInfo.fu >= 40) || (scoreInfo.han == 3 && scoreInfo.fu >= 70)) return 2000; // mangan
-    return (((scoreInfo.fu * (1 << (2 + scoreInfo.han))) + 99) / 100) * 100; // basic points
+// calculate basic points from han and fu
+int ScoreInfo::basicPoints() {
+    if (han == 0) return 0;
+    if (han >= DOUBLE_YAKUMAN_HAN) return 16000; // double yakuman
+    if (han >= 13) return 8000; // yakuman
+    if (han >= 11) return 6000; // sanbaiman
+    if (han >= 8) return 4000; // baiman
+    if (han >= 6) return 3000; // haneman
+    if (han == 5 || (han == 4 && fu >= 40) || (han == 3 && fu >= 70)) return 2000; // mangan
+    return (((fu * (1 << (2 + han))) + 99) / 100) * 100; // basic points
 }
 
 // add points from tile bonuses (dora, uradora, red fives, wind bonus) (yaku han and fu passed in via han and fu args)
-int tilePoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, ScoreInfo& scoreInfo) {
+void tilePoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, ScoreInfo& scoreInfo) {
     const Player& player = board.players[playerIndex];
     const Hand& hand = player.hand;
     
@@ -149,14 +153,11 @@ int tilePoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, S
             if (tileType == doraTiles[j] & (0xffff))
                 doraTiles[j] & (1 << 16) ? scoreInfo.addUradora() : scoreInfo.addDora();
     }
-
-    // return points
-    return basicPoints(scoreInfo);
 }
 
 // add points from non-group yaku (group han and fu passed in via yakuHan and yakuFu args)
 // called with special hands such as 13 orphans and 7 pairs
-int yakuPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, ScoreInfo& scoreInfo) {
+void yakuPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, ScoreInfo& scoreInfo) {
     const Player& player = board.players[playerIndex];
     const Hand& hand = player.hand;
 
@@ -224,19 +225,18 @@ int yakuPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, S
     // TODO: robbing a quad / robbing a kan
 
     // return if hand incomplete
-    if (scoreInfo.han == 0) return 0;
+    if (scoreInfo.han == 0) return;
 
     // self pick / tsumo
     if (!player.ronActive && hand.callMeldCount)
         scoreInfo.addYaku(Tsumo, 1);
 
-    // return points
-    return tilePoints(board, playerIndex, sortedHand, scoreInfo);
+    tilePoints(board, playerIndex, sortedHand, scoreInfo);
 }
 
 // group set points
 // note: groupset not modified (need non-const becuase of [])
-int groupSetPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, ScoreInfo& scoreInfo, GroupSet& groupSet) {
+void groupSetPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, ScoreInfo& scoreInfo, GroupSet& groupSet) {
     const Player& player = board.players[playerIndex];
     const Hand& hand = player.hand;
     int& fu = scoreInfo.fu;
@@ -432,8 +432,7 @@ int groupSetPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHan
     // round fu up to nearest 10
     fu = ((fu + 9) / 10) * 10;
     
-    // return points
-    return yakuPoints(board, playerIndex, sortedHand, scoreInfo);
+    yakuPoints(board, playerIndex, sortedHand, scoreInfo);
 }
 
 // generate all groups sets (sets of non-overlapping groups, call melds are locked)
@@ -453,8 +452,8 @@ void generateGroupSets(std::deque<GroupSet>& groupSets, const Board& board, int8
 }
 
 // handles scoring hands that do not follow standard 4 groups 1 pair (7 pairs, 13 orphans)
-int specialPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, ScoreInfo& scoreInfo) {
-    if (board.players[playerIndex].hand.callMeldCount || sortedHand.size() != 14) return 0;
+void specialPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, ScoreInfo& scoreInfo) {
+    if (board.players[playerIndex].hand.callMeldCount || sortedHand.size() != 14) return;
     
     // 7 pairs / chiitoitsu
     {
@@ -463,7 +462,8 @@ int specialPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand
         if (pairs == 7) {
             scoreInfo.addYaku(SevenPairs, 2);
             scoreInfo.fu = 25;
-            return yakuPoints(board, playerIndex, sortedHand, scoreInfo);
+            yakuPoints(board, playerIndex, sortedHand, scoreInfo);
+            return;
         }
     }
 
@@ -474,15 +474,14 @@ int specialPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand
         for (int i = 1; i < 14 && pairs <= 1; ++i) pairs += sortedHand[i-1].type == sortedHand[i].type;
         if (pairs <= 1) {
             scoreInfo.addYaku(ThirteenOrphans, YAKUMAN_HAN);
-            return yakuPoints(board, playerIndex, sortedHand, scoreInfo);
+            yakuPoints(board, playerIndex, sortedHand, scoreInfo);
+            return;
         }
     }
-
-    return 0;
 }
 
 // find value of hand
-int Board::valueOfHand(int8_t playerIndex) const {
+ScoreInfo Board::valueOfHand(int8_t playerIndex) const {
     const Player& player = players[playerIndex];
     const Hand& hand = player.hand;
     std::vector<Group> groups; // set of all valid groups (may overlap)
@@ -497,7 +496,7 @@ int Board::valueOfHand(int8_t playerIndex) const {
 
     // find all valid set groups
     auto findSets = [&](int8_t setSize) {
-        for (int i = hand.callTiles; i < sortedHand.size()-setSize; ++i) {
+        for (int i = hand.callTiles; i <= sortedHand.size()-setSize; ++i) {
             if (sortedHand[i].type != sortedHand[i+setSize-1].type)
                 continue;
             groups.emplace_back(setSize);
@@ -565,14 +564,24 @@ int Board::valueOfHand(int8_t playerIndex) const {
     static ScoreInfo currScoreInfo;
     for (GroupSet& groupSet : groupSets) {
         currScoreInfo.clear();
-        maxPoints = std::max(maxPoints, groupSetPoints(*this, playerIndex, sortedHand, currScoreInfo, groupSet));
+        groupSetPoints(*this, playerIndex, sortedHand, currScoreInfo, groupSet);
+        int points = currScoreInfo.basicPoints();
+        if (points > maxPoints) {
+            maxPoints = points;
+            maxScoreInfo = currScoreInfo;
+        }
     }
 
     // handle special yaku scoring
     currScoreInfo.clear();
-    maxPoints = std::max(maxPoints, specialPoints(*this, playerIndex, sortedHand, currScoreInfo));
+    specialPoints(*this, playerIndex, sortedHand, currScoreInfo);
+    int points = currScoreInfo.basicPoints();
+    if (points > maxPoints) {
+        maxPoints = points;
+        maxScoreInfo = currScoreInfo;
+    }
 
-    return maxPoints;
+    return maxScoreInfo;
 }
 
 void Board::initGame() {
@@ -679,4 +688,49 @@ void ScoreInfo::addRedDora() {
 
 int ScoreInfo::totalDora() {
     return doraCount + uradoraCount + redDoraCount;
+}
+
+const std::array<YakuInfo, 40> initYakuInfoMap() {
+    std::array<YakuInfo, 40> yakuInfoMap;
+    yakuInfoMap[Riichi] = YakuInfo("Riichi");
+    yakuInfoMap[DoubleRiichi] = YakuInfo("Double Riichi");
+    yakuInfoMap[AllSimples] = YakuInfo("All Simples");
+    yakuInfoMap[SevenPairs] = YakuInfo("Seven Pairs");
+    yakuInfoMap[NagashiMangan] = YakuInfo("Nagashi Mangan");
+    yakuInfoMap[Tsumo] = YakuInfo("Tsumo");
+    yakuInfoMap[Ippatsu] = YakuInfo("Ippatsu");
+    yakuInfoMap[UnderTheSea] = YakuInfo("Under the Sea");
+    yakuInfoMap[UnderTheRiver] = YakuInfo("Under the River");
+    yakuInfoMap[DeadWallDraw] = YakuInfo("Dead Wall Draw");
+    yakuInfoMap[RobbingAKan] = YakuInfo("Robbing a Kan");
+    yakuInfoMap[Pinfu] = YakuInfo("Pinfu");
+    yakuInfoMap[TwinSequences] = YakuInfo("Twin Sequences");
+    yakuInfoMap[MixedSequences] = YakuInfo("Mixed Sequences");
+    yakuInfoMap[FullStraight] = YakuInfo("Full Straight");
+    yakuInfoMap[DoubleTwinSequences] = YakuInfo("Double Twin Sequences");
+    yakuInfoMap[AllTriplets] = YakuInfo("All Triplets");
+    yakuInfoMap[ThreeConcealedTriplets] = YakuInfo("Three Concealed Triplets");
+    yakuInfoMap[FourConcealedTriplets] = YakuInfo("Four Concealed Triplets");
+    yakuInfoMap[ThreeMixedTriplets] = YakuInfo("Three Mixed Triplets");
+    yakuInfoMap[ThreeKan] = YakuInfo("Three Kan");
+    yakuInfoMap[FourKan] = YakuInfo("Four Kan");
+    yakuInfoMap[HonorTiles] = YakuInfo("Honor Tiles");
+    yakuInfoMap[CommonEnds] = YakuInfo("Common Ends");
+    yakuInfoMap[PerfectEnds] = YakuInfo("Perfect Ends");
+    yakuInfoMap[CommonTerminals] = YakuInfo("Common Terminals");
+    yakuInfoMap[LittleThreeDragons] = YakuInfo("Little Three Dragons");
+    yakuInfoMap[BigThreeDragons] = YakuInfo("Big Three Dragons");
+    yakuInfoMap[LittleFourWinds] = YakuInfo("Little Four Winds");
+    yakuInfoMap[BigFourWinds] = YakuInfo("Big Four Winds");
+    yakuInfoMap[HalfFlush] = YakuInfo("Half Flush");
+    yakuInfoMap[FullFlush] = YakuInfo("Full Flush");
+    yakuInfoMap[ThirteenOrphans] = YakuInfo("Thirteen Orphans");
+    yakuInfoMap[AllHonors] = YakuInfo("All Honors");
+    yakuInfoMap[AllTerminals] = YakuInfo("All Terminals");
+    yakuInfoMap[AllGreen] = YakuInfo("All Green");
+    yakuInfoMap[NineGates] = YakuInfo("Nine Gates");
+    yakuInfoMap[BlessingOfHeaven] = YakuInfo("Blessing of Heaven");
+    yakuInfoMap[BlessingOfEarth] = YakuInfo("Blessing of Earth");
+    yakuInfoMap[BlessingOfMan] = YakuInfo("Blessing of Man");
+    return yakuInfoMap;
 }

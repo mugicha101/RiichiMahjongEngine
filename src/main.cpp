@@ -33,8 +33,11 @@ int main()
     Board board;
     memcpy(board.players[0].hand.tiles, tiles, sizeof(tiles));
     board.players[0].riichiTurn = 1;
-    int points = board.valueOfHand(0);
-    std::cout << "points=" << points << std::endl;
+    ScoreInfo scoreInfo = board.valueOfHand(0);
+    std::cout << "basic points=" << scoreInfo.basicPoints() << std::endl;
+    for (auto& [yaku, han] : scoreInfo.yakuHan) {
+        std::cout << YAKU_INFO_MAP[yaku].name << " " << han << std::endl;
+    }
 
     View view(board);
     const float init_scale = 0.8f;
