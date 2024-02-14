@@ -35,6 +35,7 @@ suited tiles
 #include <stdint.h>
 #include <array>
 #include <algorithm>
+#include <vector>
 
 typedef int8_t TileType;
 
@@ -235,4 +236,62 @@ public:
     inline int8_t size() const {
         return _size;
     }
+};
+
+enum Yaku {
+    Riichi,
+    DoubleRiichi,
+    AllSimples,
+    SevenPairs,
+    NagashiMangan,
+    Tsumo,
+    Ippatsu,
+    UnderTheSea,
+    UnderTheRiver,
+    DeadWallDraw,
+    RobbingAKan,
+    Pinfu,
+    TwinSequences,
+    MixedSequences,
+    FullStraight,
+    DoubleTwinSequences,
+    AllTriplets,
+    ThreeConcealedTriplets,
+    FourConcealedTriplets,
+    ThreeMixedTriplets,
+    ThreeKan,
+    FourKan,
+    HonorTiles,
+    CommonEnds,
+    PerfectEnds,
+    CommonTerminals,
+    LittleThreeDragons,
+    BigThreeDragons,
+    LittleFourWinds,
+    BigFourWinds,
+    HalfFlush,
+    FullFlush,
+    ThirteenOrphans,
+    AllHonors,
+    AllTerminals,
+    AllGreen,
+    NineGates,
+    BlessingOfHeaven,
+    BlessingOfEarth,
+    BlessingOfMan,
+};
+
+struct ScoreInfo {
+    std::vector<std::pair<Yaku, int>> yakuHan; // pair of yaku and its han value (closed variants may have different han)
+    int doraCount = 0;
+    int uradoraCount = 0;
+    int redDoraCount = 0;
+    int han = 0;
+    int fu = 0;
+    inline void clear(); // clears score
+    inline void addYaku(Yaku yaku, int han); // adds yaku
+    inline void addDora(); // adds 1 dora
+    inline void addUradora(); // adds 1 uradora
+    inline void addRedDora(); // adds 1 red dora
+    inline int totalDora(); // gets total dora
 };

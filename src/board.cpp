@@ -113,18 +113,18 @@ inline bool isSimple(TileType tileType) {
 }
 
 // calculate basic points from hand and fu
-int basicPoints(int han, int fu) {
-    if (han >= DOUBLE_YAKUMAN_HAN) return 16000; // double yakuman
-    if (han >= 13) return 8000; // yakuman
-    if (han >= 11) return 6000; // sanbaiman
-    if (han >= 8) return 4000; // baiman
-    if (han >= 6) return 3000; // haneman
-    if (han == 5 || (han == 4 && fu >= 40) || (han == 3 && fu >= 70)) return 2000; // mangan
-    return (((fu * (1 << (2 + han))) + 99) / 100) * 100; // basic points
+int basicPoints(const ScoreInfo& scoreInfo) {
+    if (scoreInfo.han >= DOUBLE_YAKUMAN_HAN) return 16000; // double yakuman
+    if (scoreInfo.han >= 13) return 8000; // yakuman
+    if (scoreInfo.han >= 11) return 6000; // sanbaiman
+    if (scoreInfo.han >= 8) return 4000; // baiman
+    if (scoreInfo.han >= 6) return 3000; // haneman
+    if (scoreInfo.han == 5 || (scoreInfo.han == 4 && scoreInfo.fu >= 40) || (scoreInfo.han == 3 && scoreInfo.fu >= 70)) return 2000; // mangan
+    return (((scoreInfo.fu * (1 << (2 + scoreInfo.han))) + 99) / 100) * 100; // basic points
 }
 
 // add points from tile bonuses (dora, uradora, red fives, wind bonus) (yaku han and fu passed in via han and fu args)
-int tilePoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, int han, int fu) {
+int tilePoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, ScoreInfo& scoreInfo) {
     const Player& player = board.players[playerIndex];
     const Hand& hand = player.hand;
     
@@ -133,7 +133,7 @@ int tilePoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, i
     int doraTilesCount = 0;
     for (int i = 0; i < board.revealedDora; ++i) {
         doraTiles[doraTilesCount++] = board.getDora(i, false);
-        if (player.riichiTurn) doraTiles[doraTilesCount++] = board.getDora(i, true);
+        if (player.riichiTurn) doraTiles[doraTilesCount++] = (1 << 16) | board.getDora(i, true);
     }
 
     // iterate through tiles
@@ -142,26 +142,32 @@ int tilePoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, i
         TileType tileType = *tile;
 
         // red
-        han += tile.isRed();
+        if (tile.isRed()) scoreInfo.addRedDora();
 
         // dora
         for (int j = 0; j < doraTilesCount; ++j)
-            han += tileType == doraTiles[j];
+            if (tileType == doraTiles[j] & (0xffff))
+                doraTiles[j] & (1 << 16) ? scoreInfo.addUradora() : scoreInfo.addDora();
     }
 
     // return points
-    return basicPoints(han, fu);
+    return basicPoints(scoreInfo);
 }
 
 // add points from non-group yaku (group han and fu passed in via yakuHan and yakuFu args)
 // called with special hands such as 13 orphans and 7 pairs
-int yakuPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, int yakuHan, const int fu) {
+int yakuPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, ScoreInfo& scoreInfo) {
     const Player& player = board.players[playerIndex];
     const Hand& hand = player.hand;
 
     // ready / riichi
     // double ready / double riichi
-    yakuHan += player.riichiTurn != 0 ? player.riichiTurn == player.firstTurn && board.lastCallTurn < player.firstTurn ? 2 : 1 : 0;
+    if (player.riichiTurn != 0) {
+        if (player.riichiTurn == player.firstTurn && board.lastCallTurn < player.firstTurn)
+            scoreInfo.addYaku(DoubleRiichi, 2);
+        else
+            scoreInfo.addYaku(Riichi, 1);
+    }
 
     // all simples / tan'yao
     {
@@ -170,7 +176,7 @@ int yakuPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, i
             TileType tileType = sortedHand[i].type;
             tanyao = (tileType & 0b110000) != 0 && (tileType & 0b001111) != 1 && (tileType & 0b001111) != 9;
         }
-        yakuHan += tanyao;
+        if (tanyao) scoreInfo.addYaku(AllSimples, 1);
     }
 
     // TODO: half flush / common flush / hon'itsu
@@ -197,19 +203,17 @@ int yakuPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, i
                             (tileType & 0b1111) == 2 || (tileType & 0b1111) == 3 || (tileType & 0b1111) == 4 || (tileType & 0b1111) == 6 || (tileType & 0b1111) == 8)
                         ) || tileType == DGNG;
         }
-        yakuHan += commonTerminals ? 2 : 0;
-        yakuHan += allHonors ? YAKUMAN_HAN : 0;
-        yakuHan += allTerminals ? YAKUMAN_HAN : 0;
-        yakuHan += allGreen ? YAKUMAN_HAN : 0;
+        if (commonTerminals) scoreInfo.addYaku(CommonTerminals, 2);
+        if (allHonors) scoreInfo.addYaku(AllHonors, YAKUMAN_HAN);
+        if (allTerminals) scoreInfo.addYaku(AllTerminals, YAKUMAN_HAN);
+        if (allGreen) scoreInfo.addYaku(AllGreen, YAKUMAN_HAN);
     }
 
     // TODO: nagashi mangan
 
-    // TODO: self pick / tsumo
-    yakuHan += !player.ronActive && hand.callMeldCount == 0;
-
     // one shot / ippatsu
-    yakuHan += player.lastTurn == player.riichiTurn && board.lastCallTurn < player.riichiTurn;
+    if (player.lastTurn == player.riichiTurn && board.lastCallTurn < player.riichiTurn)
+        scoreInfo.addYaku(Ippatsu, 1);
 
     // TODO: last tile draw / under the sea
 
@@ -219,18 +223,24 @@ int yakuPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, i
 
     // TODO: robbing a quad / robbing a kan
 
+    // return if hand incomplete
+    if (scoreInfo.han == 0) return 0;
+
+    // self pick / tsumo
+    if (!player.ronActive && hand.callMeldCount)
+        scoreInfo.addYaku(Tsumo, 1);
+
     // return points
-    if (yakuHan == 0) return 0;
-    return tilePoints(board, playerIndex, sortedHand, yakuHan, fu);
+    return tilePoints(board, playerIndex, sortedHand, scoreInfo);
 }
 
 // group set points
 // note: groupset not modified (need non-const becuase of [])
-int groupSetPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, GroupSet& groupSet) {
+int groupSetPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, ScoreInfo& scoreInfo, GroupSet& groupSet) {
     const Player& player = board.players[playerIndex];
     const Hand& hand = player.hand;
-    int yakuHan = 0;
-    int fu = player.ronActive ? 30 : 20;
+    int& fu = scoreInfo.fu;
+    fu = player.ronActive ? 30 : 20;
 
     // find pair
     int8_t pairIndex;
@@ -282,7 +292,8 @@ int groupSetPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHan
     fu += fu == 20 && hand.callMeldCount != 0 ? 2 : 0;
 
     // no-points hand / pinfu
-    yakuHan += fu == 20 && hand.callMeldCount == 0;
+    if (fu == 20 && hand.callMeldCount == 0)
+        scoreInfo.addYaku(Pinfu, 1);
 
     // twin sequences / ipeiko
     // double twin sequences / ryanpeiko
@@ -291,7 +302,8 @@ int groupSetPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHan
         for (int suit = 0; suit < 3; ++suit)
             for (int num = 0; num < 7; ++num)
                 ipeikoCount += runCounter[suit][num] >= 2;
-        yakuHan += (int)(ipeikoCount >= 2) + (int)(ipeikoCount >= 1);
+        if (ipeikoCount >= 2) scoreInfo.addYaku(DoubleTwinSequences, 2);
+        else if (ipeikoCount == 1) scoreInfo.addYaku(TwinSequences, 1);
     }
 
     // mixed sequences / sanshoku doujun
@@ -299,7 +311,7 @@ int groupSetPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHan
         bool sanshoku = false;
         for (int num = 0; !sanshoku && num < 7; ++num)
             sanshoku = runCounter[0][num] && runCounter[1][num] && runCounter[2][num];
-        yakuHan += sanshoku ? 1 + (hand.callMeldCount == 0) : 0;
+        if (sanshoku) scoreInfo.addYaku(MixedSequences, 1 + (hand.callMeldCount == 0));
     }
 
     // full straight / ikkitsuu
@@ -307,24 +319,26 @@ int groupSetPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHan
         bool ikkitsuu = 0;
         for (int suit = 0; !ikkitsuu && suit < 3; ++suit)
             ikkitsuu = runCounter[suit][0] && runCounter[suit][3] && runCounter[suit][6];
-        yakuHan += ikkitsuu ? 1 + (hand.callMeldCount == 0) : 0;
+        if (ikkitsuu) scoreInfo.addYaku(FullStraight, 1 + (hand.callMeldCount == 0));
     }
 
-    // all sets / toitoi
+    // all triplets / toitoi
     {
         bool toitoi = true;
         for (int suit = 0; toitoi && suit < 3; ++suit)
             for (int num = 0; toitoi && num < 7; ++num)
                 toitoi = runCounter[suit][num] == 0;
-        yakuHan += toitoi ? 2 : 0;
+        if (toitoi) scoreInfo.addYaku(AllTriplets, 2);
     }
 
-    // three concealed sets / san'anko
+    // three concealed triplets / san'anko
+    // four concealed triplets / suanko
     {
         int concealedSets = 0;
         for (int i = 0; i < groupSet.size(); ++i)
             concealedSets += groupSet[i].size() >= 3 && !groupSet[i].open() && sortedHand[groupSet[i][0]].type == sortedHand[groupSet[i][1]].type;
-        yakuHan += concealedSets == 3 ? 2 : 0;
+        if (concealedSets >= 4) scoreInfo.addYaku(FourConcealedTriplets, YAKUMAN_HAN);
+        else if (concealedSets == 3) scoreInfo.addYaku(ThreeConcealedTriplets, 2);
     }
 
     // mixed triplets / sanshoku douko
@@ -332,7 +346,7 @@ int groupSetPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHan
         bool sanshoku = false;
         for (int num = 0; !sanshoku && num < 9; ++num)
             sanshoku = suitSetCounter[0][num] && suitSetCounter[1][num] && suitSetCounter[2][num];
-        yakuHan += sanshoku ? 2 : 0;
+        if (sanshoku) scoreInfo.addYaku(ThreeMixedTriplets, 2);
     }
 
     // three quads / sankatsu
@@ -341,7 +355,8 @@ int groupSetPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHan
         int kanCount = 0;
         for (int i = 0; i < groupSet.size(); ++i)
             kanCount += groupSet[i].size() == 4;
-        yakuHan += kanCount == 4 ? YAKUMAN_HAN : kanCount == 3 ? 2 : 0;
+        if (kanCount == 4) scoreInfo.addYaku(FourKan, YAKUMAN_HAN);
+        else if (kanCount == 3) scoreInfo.addYaku(ThreeKan, 2);
     }
 
     // honor tiles / yakuhai
@@ -360,7 +375,7 @@ int groupSetPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHan
             honorCount += ((tileType & 0b111100) == 0b000100) && ((tileType & 0b000011) == board.seatWind); // matches prevailing wind
             honorCount += tileType & 0b111100 == 0b000000; // dragon
         }
-        yakuHan += honorCount;
+        if (honorCount) scoreInfo.addYaku(HonorTiles, honorCount);
     }
 
     // common ends / chanta
@@ -372,7 +387,10 @@ int groupSetPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHan
             TileType right = sortedHand[groupSet[i][groupSet[i].size()-1]].type;
             ends = ((left >> 4) != 0 && (left & 0b001111) == 1) || ((right >> 4) != 0 && (right & 0b001111) == 9);
         }
-        yakuHan += ends ? 1 + (hand.callMeldCount == 0) + !hasHonors : 0;
+        if (ends) {
+            if (hasHonors) scoreInfo.addYaku(CommonEnds, 1 + (hand.callMeldCount == 0));
+            else scoreInfo.addYaku(PerfectEnds, 2 + (hand.callMeldCount == 0));
+        }
     }
 
     {
@@ -389,15 +407,19 @@ int groupSetPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHan
         // little three dragons
         // big three dragons
         std::sort(dragons, dragons + 3);
-        yakuHan += dragons[1] == 3 ? dragons[0] == 3 ? YAKUMAN_HAN : 2 : 0;
+        if (dragons[1] >= 3) {
+            if (dragons[0] >= 3) scoreInfo.addYaku(BigThreeDragons, YAKUMAN_HAN);
+            else if (dragons[0] == 2) scoreInfo.addYaku(LittleThreeDragons, 2);
+        }
 
         // little winds / shosushi
         // big winds / daisushi
         std::sort(winds, winds + 4);
-        yakuHan += winds[1] >= 3 ? winds[0] >= 3 ? DOUBLE_YAKUMAN_HAN : YAKUMAN_HAN : 0;
+        if (winds[1] >= 3) {
+            if (winds[0] >= 3) scoreInfo.addYaku(BigFourWinds, DOUBLE_YAKUMAN_HAN);
+            else if (winds[0] == 2) scoreInfo.addYaku(LittleFourWinds, YAKUMAN_HAN);
+        }
     }
-
-    // TODO: four concealed triplets / suanko
 
     // TODO: nine gates / churen poto
 
@@ -411,7 +433,7 @@ int groupSetPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHan
     fu = ((fu + 9) / 10) * 10;
     
     // return points
-    return yakuPoints(board, playerIndex, sortedHand, yakuHan, fu);
+    return yakuPoints(board, playerIndex, sortedHand, scoreInfo);
 }
 
 // generate all groups sets (sets of non-overlapping groups, call melds are locked)
@@ -431,14 +453,18 @@ void generateGroupSets(std::deque<GroupSet>& groupSets, const Board& board, int8
 }
 
 // handles scoring hands that do not follow standard 4 groups 1 pair (7 pairs, 13 orphans)
-int specialPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand) {
+int specialPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand, ScoreInfo& scoreInfo) {
     if (board.players[playerIndex].hand.callMeldCount || sortedHand.size() != 14) return 0;
     
     // 7 pairs / chiitoitsu
     {
         int pairs;
         for (pairs = 0; pairs < 7 && sortedHand[pairs * 2].type == sortedHand[pairs * 2 + 1].type; ++pairs)
-        if (pairs == 7) return yakuPoints(board, playerIndex, sortedHand, 2, 25);
+        if (pairs == 7) {
+            scoreInfo.addYaku(SevenPairs, 2);
+            scoreInfo.fu = 25;
+            return yakuPoints(board, playerIndex, sortedHand, scoreInfo);
+        }
     }
 
     // 13 orphans / kokushi musou
@@ -446,7 +472,10 @@ int specialPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHand
     {
         int pairs = 0;
         for (int i = 1; i < 14 && pairs <= 1; ++i) pairs += sortedHand[i-1].type == sortedHand[i].type;
-        if (pairs == 1) return yakuPoints(board, playerIndex, sortedHand, YAKUMAN_HAN, 0);
+        if (pairs <= 1) {
+            scoreInfo.addYaku(ThirteenOrphans, YAKUMAN_HAN);
+            return yakuPoints(board, playerIndex, sortedHand, scoreInfo);
+        }
     }
 
     return 0;
@@ -532,11 +561,16 @@ int Board::valueOfHand(int8_t playerIndex) const {
     
     // handle group-based yaku scoring
     int maxPoints = 0;
-    for (GroupSet& groupSet : groupSets)
-        maxPoints = std::max(maxPoints, groupSetPoints(*this, playerIndex, sortedHand, groupSet));
+    ScoreInfo maxScoreInfo;
+    static ScoreInfo currScoreInfo;
+    for (GroupSet& groupSet : groupSets) {
+        currScoreInfo.clear();
+        maxPoints = std::max(maxPoints, groupSetPoints(*this, playerIndex, sortedHand, currScoreInfo, groupSet));
+    }
 
     // handle special yaku scoring
-    maxPoints = std::max(maxPoints, specialPoints(*this, playerIndex, sortedHand));
+    currScoreInfo.clear();
+    maxPoints = std::max(maxPoints, specialPoints(*this, playerIndex, sortedHand, currScoreInfo));
 
     return maxPoints;
 }
@@ -554,6 +588,7 @@ void Board::nextRound() {
     lastCallTurn = 0;
     lastDrawAction = natural;
     lastDiscardPlayer = -1;
+    revealedDora = 1;
     memcpy(wall, GAME_TILES, sizeof(GAME_TILES));
     std::random_shuffle(std::begin(wall), std::end(wall));
     for (int i = 0; i < PLAYER_COUNT; ++i)
@@ -612,3 +647,36 @@ const Tile GAME_TILES[TILE_COUNT] = {
     Tile(MAN8), Tile(MAN8), Tile(MAN8), Tile(MAN8),
     Tile(MAN9), Tile(MAN9), Tile(MAN9), Tile(MAN9),
 };
+
+void ScoreInfo::clear() {
+    yakuHan.clear();
+    doraCount = 0;
+    uradoraCount = 0;
+    redDoraCount = 0;
+    han = 0;
+    fu = 0;
+}
+
+void ScoreInfo::addYaku(Yaku yaku, int hanValue) {
+    yakuHan.emplace_back(yaku, hanValue);
+    han += hanValue;
+}
+
+void ScoreInfo::addDora() {
+    ++doraCount;
+    ++han;
+}
+
+void ScoreInfo::addUradora() {
+    ++uradoraCount;
+    ++han;
+}
+
+void ScoreInfo::addRedDora() {
+    ++redDoraCount;
+    ++han;
+}
+
+int ScoreInfo::totalDora() {
+    return doraCount + uradoraCount + redDoraCount;
+}
