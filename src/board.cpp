@@ -69,8 +69,8 @@ inline bool Group::valid(const Hand& hand) const {
     return (hand[tileIndices[0]] & 0b110000) && hand[tileIndices[1]] == hand[tileIndices[0]] + 1 && hand[tileIndices[2]] == hand[tileIndices[0]] + 2;
 }
 
-inline uint16_t Group::mask() const {
-    uint16_t mask = 0;
+inline uint32_t Group::mask() const {
+    uint32_t mask = 0;
     for (int i = 0; i < _size; ++i)
         mask |= 1 << tileIndices[i];
     return mask;
@@ -436,14 +436,14 @@ void groupSetPoints(const Board& board, int8_t playerIndex, SortedHand& sortedHa
 }
 
 // generate all groups sets (sets of non-overlapping groups, call melds are locked)
-void generateGroupSets(std::deque<GroupSet>& groupSets, const Board& board, int8_t playerIndex, SortedHand& sortedHand, const std::vector<Group>& groups, GroupSet& groupSet, int groupIndex, uint16_t usedTiles, bool pairHandled) {
+void generateGroupSets(std::deque<GroupSet>& groupSets, const Board& board, int8_t playerIndex, SortedHand& sortedHand, const std::vector<Group>& groups, GroupSet& groupSet, int groupIndex, uint32_t usedTiles, bool pairHandled) {
     if (groupSet.size() == MAX_GROUPS + 1 && pairHandled) {
         groupSets.push_back(groupSet);
         return;
     }
     for (; groupIndex < groups.size(); ++groupIndex) {
         const Group& group = groups[groupIndex];
-        uint16_t groupMask = group.mask();
+        uint32_t groupMask = group.mask();
         if ((usedTiles & groupMask) || (pairHandled && group.size() == 2)) continue;
         groupSet.push(group);
         generateGroupSets(groupSets, board, playerIndex, sortedHand, groups, groupSet, groupIndex+1, usedTiles | groupMask, pairHandled || group.size() == 2);
@@ -509,7 +509,7 @@ ScoreInfo Board::valueOfHand(int8_t playerIndex) const {
     findSets(4);
 
     // find all valid run groups
-    for (int i = hand.callTiles; i < sortedHand.size()-3; ++i) {
+    for (int i = hand.callTiles; i <= sortedHand.size()-3; ++i) {
         TileType middle = nextInRun(sortedHand[i].type);
         TileType last = nextInRun(middle);
         if (last == NONE) continue; // since nextInRun(NONE) = NONE, checking last is sufficient
@@ -525,7 +525,10 @@ ScoreInfo Board::valueOfHand(int8_t playerIndex) const {
 
     // sort groups (should keep call melds at front)
     sort(groups.begin(), groups.end(), [](Group& a, Group& b) {
-        return a[0] < b[0];
+        int cap = std::min(a.size(), b.size());
+        for (int i = 0; i < cap; ++i)
+            if (a[i] != b[i]) return a[i] < b[i];
+        return a.size() < b.size();
     });
 
     // debug print
@@ -666,27 +669,27 @@ void ScoreInfo::clear() {
     fu = 0;
 }
 
-void ScoreInfo::addYaku(Yaku yaku, int hanValue) {
+inline void ScoreInfo::addYaku(Yaku yaku, int hanValue) {
     yakuHan.emplace_back(yaku, hanValue);
     han += hanValue;
 }
 
-void ScoreInfo::addDora() {
+inline void ScoreInfo::addDora() {
     ++doraCount;
     ++han;
 }
 
-void ScoreInfo::addUradora() {
+inline void ScoreInfo::addUradora() {
     ++uradoraCount;
     ++han;
 }
 
-void ScoreInfo::addRedDora() {
+inline void ScoreInfo::addRedDora() {
     ++redDoraCount;
     ++han;
 }
 
-int ScoreInfo::totalDora() {
+inline int ScoreInfo::totalDora() {
     return doraCount + uradoraCount + redDoraCount;
 }
 

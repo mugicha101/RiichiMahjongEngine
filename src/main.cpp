@@ -9,8 +9,8 @@ int main()
     View::init();
 
     Tile tiles[MAX_HAND_SIZE] = {
-        Tile(SOU5),
-        Tile(SOU5),
+        Tile(PIN9),
+        Tile(PIN9),
         Tile(SOU6),
         Tile(SOU6),
         Tile(SOU6),
@@ -20,9 +20,9 @@ int main()
         Tile(SOU8),
         Tile(SOU8),
         Tile(SOU8),
-        Tile(SOU9),
-        Tile(SOU9),
-        Tile(SOU9),
+        Tile(MAN2),
+        Tile(MAN3),
+        Tile(MAN4),
         Tile(NONE),
         Tile(NONE),
         Tile(NONE),

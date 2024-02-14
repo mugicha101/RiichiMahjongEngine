@@ -129,7 +129,7 @@ class Group {
 public:
     Group(int size = 3, bool open = false, bool locked = false) : _size(size), _open(open), _locked(locked) {}
     bool valid(const Hand& hand) const; // determines if meld is valid
-    uint16_t mask() const; // return a bitmask with tile indices marked
+    uint32_t mask() const; // return a bitmask with tile indices marked
     int8_t& operator[](int8_t index); // returns tile index at specified index in tileIndices
     int8_t size() const; // returns size of group
     bool open() const; // returns whether group is open
